@@ -1,303 +1,304 @@
 import { useState, useEffect } from 'react'
 import MarkdownEditor from './MarkdownEditor'
-import api from '../api'
 import { useEmployee } from '../context/EmployeeContext'
+import { TASK_STATUS_OPTIONS, TASK_PRIORITY_OPTIONS, parseLabels } from '../utils/dataMappers'
 
-function TaskModal({ show, onClose, onSave, task = null, projectName = null, role = 'pm' }) {
-    const { currentEmployee } = useEmployee()
-    const isExecutor = role === 'executor'
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        status: 'Pending',
-        priority: 'medium',
-        project: projectName || '',
-        assignee: '',
-        dueDate: '',
-        estimatedHours: ''
-    })
+function TaskModal({
+  show,
+  onClose,
+  onSave,
+  task = null,
+  projectId = null,
+  projectOptions = [],
+  employeeOptions = [],
+  role = 'pm',
+  onSubmitStatus,
+}) {
+  const { currentEmployee } = useEmployee()
+  const isExecutor = role === 'executor'
 
-    useEffect(() => {
-        if (task) {
-            setFormData({
-                title: task.title,
-                description: task.description,
-                status: task.status,
-                priority: task.priority,
-                project: task.project,
-                assignee: task.assignee,
-                dueDate: task.dueDate,
-                estimatedHours: task.estimatedHours
-            })
-        } else {
-            setFormData({
-                title: '',
-                description: '',
-                status: 'Pending',
-                priority: 'medium',
-                project: projectName || '',
-                assignee: '',
-                dueDate: '',
-                estimatedHours: ''
-            })
-        }
-    }, [task, projectName, show])
+  const initialForm = {
+    title: '',
+    description: '',
+    status_name: 'proposed',
+    priority: 'medium',
+    project_id: projectId || '',
+    assignee_id: '',
+    estimated_time: '',
+    epic_name: '',
+    labels: '',
+  }
 
-    const handleChange = (e) => {
-        const { name, value } = e.target
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }))
+  const [formData, setFormData] = useState(initialForm)
+
+  useEffect(() => {
+    if (task) {
+      setFormData({
+        title: task.title || '',
+        description: task.description || '',
+        status_name: task.statusKey || 'proposed',
+        priority: task.priorityKey || 'medium',
+        project_id: task.projectId || projectId || '',
+        assignee_id: task.assigneeId || '',
+        estimated_time: task.estimatedTime || '',
+        epic_name: task.epicName || '',
+        labels: Array.isArray(task.labels) ? task.labels.join(', ') : '',
+      })
+    } else {
+      setFormData(initialForm)
+    }
+  }, [task, projectId, show])
+
+  const handleChange = (e) => {
+    const { name, value } = e.target
+    setFormData(prev => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+
+    if (isExecutor) {
+      if (!task || !onSubmitStatus) return
+      await onSubmitStatus(task.id, formData.status_name)
+      return
     }
 
-    const [projects, setProjects] = useState([])
-
-    useEffect(() => {
-        let mounted = true
-        ;(async () => {
-            try {
-                const res = await api.listProjects()
-                if (!mounted) return
-                setProjects(res || [])
-            } catch (err) {
-                console.error('Failed to load projects', err)
-            }
-        })()
-        return () => { mounted = false }
-    }, [])
-
-    const handleSubmit = async (e) => {
-        e.preventDefault()
-
-        const taskData = {
-            id: task?.id,
-            ...formData,
-            estimatedHours: parseFloat(formData.estimatedHours) || 0,
-            createdAt: task?.createdAt || new Date().toISOString(),
-            completedAt: task?.completedAt || null
-        }
-
-        try {
-            await onSave(taskData)
-            onClose()
-        } catch (err) {
-            console.error('Failed to submit task', err)
-            alert('Failed to submit task')
-        }
+    const payload = {
+      title: formData.title,
+      description: formData.description,
+      status_name: formData.status_name,
+      priority: formData.priority,
+      project_id: formData.project_id ? Number(formData.project_id) : null,
+      estimated_time: formData.estimated_time || null,
+      epic_name: formData.epic_name || null,
+      labels: parseLabels(formData.labels),
     }
 
-    if (!show) return null
+    if (formData.assignee_id) {
+      payload.assignee = { employee_id: formData.assignee_id }
+    }
 
-    return (
-        <>
-            {/* Bootstrap Modal Backdrop */}
-            <div className="modal-backdrop fade show" onClick={onClose}></div>
+    await onSave(payload, { taskId: task?.id })
+  }
 
-            {/* Bootstrap Modal */}
-            <div className="modal fade show d-block" tabIndex="-1">
-                <div className="modal-dialog modal-lg modal-dialog-centered">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h5 className="modal-title">
-                                {isExecutor ? 'Update Task Status' : (task ? 'Edit Task' : 'Create New Task')}
-                            </h5>
-                            <button type="button" className="btn-close" onClick={onClose}></button>
-                        </div>
-                        
-                        <form onSubmit={handleSubmit}>
-                            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                                {isExecutor ? (
-                                    // Executor görünümü - sadece önemli bilgiler ve status
-                                    <>
-                                        <div className="mb-3">
-                                            <h5>{formData.title}</h5>
-                                            <p className="text-muted">{formData.description || 'No description'}</p>
-                                        </div>
-                                        <div className="row mb-3">
-                                            <div className="col-md-6">
-                                                <label className="form-label">Project</label>
-                                                <p className="form-control-plaintext">{formData.project}</p>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <label className="form-label">Priority</label>
-                                                <p className="form-control-plaintext">
-                                                    <span className={`badge bg-${formData.priority === 'critical' ? 'danger' : formData.priority === 'high' ? 'warning' : formData.priority === 'medium' ? 'info' : 'success'}`}>
-                                                        {formData.priority.toUpperCase()}
-                                                    </span>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="row mb-3">
-                                            <div className="col-md-6">
-                                                <label className="form-label">Due Date</label>
-                                                <p className="form-control-plaintext">{formData.dueDate}</p>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <label className="form-label">Estimated Hours</label>
-                                                <p className="form-control-plaintext">{formData.estimatedHours || 'Not set'}</p>
-                                            </div>
-                                        </div>
-                                        <hr className="my-4" />
-                                        <div className="mb-3">
-                                            <label htmlFor="status" className="form-label">Update Status *</label>
-                                            <select
-                                                className="form-select form-select-lg"
-                                                id="status"
-                                                name="status"
-                                                value={formData.status}
-                                                onChange={handleChange}
-                                            >
-                                                <option value="Pending">Pending</option>
-                                                <option value="In Progress">In Progress</option>
-                                                <option value="Completed">Completed</option>
-                                                <option value="Blocked">Blocked</option>
-                                            </select>
-                                        </div>
-                                    </>
-                                ) : (
-                                    // PM görünümü - tüm field'lar
-                                    <>
-                                        <div className="mb-3">
-                                            <label htmlFor="title" className="form-label">Task Title *</label>
-                                            <input
-                                                type="text"
-                                                className="form-control"
-                                                id="title"
-                                                name="title"
-                                                value={formData.title}
-                                                onChange={handleChange}
-                                                placeholder="e.g., Design homepage mockup"
-                                                required
-                                            />
-                                        </div>
-                                        <div className="mb-3">
-                                            <label htmlFor="description" className="form-label">Description</label>
-                                            <div style={{ minHeight: '150px' }}>
-                                                <MarkdownEditor
-                                                    value={formData.description}
-                                                    onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
-                                                    placeholder="Describe the task requirements..."
-                                                />
-                                            </div>
-                                        </div>
+  if (!show) return null
 
-                                        <div className="row mb-3">
-                                            <div className="col-md-6">
-                                                <label htmlFor="project" className="form-label">Project *</label>
-                                                <select
-                                                    className="form-select"
-                                                    id="project"
-                                                    name="project"
-                                                    value={formData.project}
-                                                    onChange={handleChange}
-                                                    required
-                                                    disabled={projectName !== null}
-                                                >
-                                                    <option value="">Select a project</option>
-                                                    {projects.map(project => (
-                                                            <option key={project.id} value={project.name}>
-                                                                {project.name}
-                                                            </option>
-                                                        ))}
-                                                </select>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <label htmlFor="status" className="form-label">Status</label>
-                                                <select
-                                                    className="form-select"
-                                                    id="status"
-                                                    name="status"
-                                                    value={formData.status}
-                                                    onChange={handleChange}
-                                                >
-                                                    <option value="Pending">Pending</option>
-                                                    <option value="In Progress">In Progress</option>
-                                                    <option value="Completed">Completed</option>
-                                                    <option value="Blocked">Blocked</option>
-                                                </select>
-                                            </div>
-                                        </div>
+  return (
+    <>
+      <div className="modal-backdrop fade show" onClick={onClose}></div>
 
-                                        <div className="row mb-3">
-                                            <div className="col-md-6">
-                                                <label htmlFor="priority" className="form-label">Priority</label>
-                                                <select
-                                                    className="form-select"
-                                                    id="priority"
-                                                    name="priority"
-                                                    value={formData.priority}
-                                                    onChange={handleChange}
-                                                >
-                                                    <option value="low">Low</option>
-                                                    <option value="medium">Medium</option>
-                                                    <option value="high">High</option>
-                                                    <option value="critical">Critical</option>
-                                                </select>
-                                            </div>
-                                            <div className="col-md-6">
-                                                <label htmlFor="estimatedHours" className="form-label">Estimated Hours</label>
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    id="estimatedHours"
-                                                    name="estimatedHours"
-                                                    value={formData.estimatedHours}
-                                                    onChange={handleChange}
-                                                    placeholder="e.g., 8"
-                                                    min="0"
-                                                    max="1000"
-                                                    step="0.5"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="row mb-3">
-                                            <div className="col-md-6">
-                                                <label htmlFor="assignee" className="form-label">Assignee</label>
-                                                <input
-                                                    type="text"
-                                                    className="form-control"
-                                                    id="assignee"
-                                                    name="assignee"
-                                                    value={formData.assignee}
-                                                    onChange={handleChange}
-                                                    placeholder="e.g., John Doe"
-                                                />
-                                            </div>
-                                            <div className="col-md-6">
-                                                <label htmlFor="dueDate" className="form-label">Due Date *</label>
-                                                <input
-                                                    type="date"
-                                                    className="form-control"
-                                                    id="dueDate"
-                                                    name="dueDate"
-                                                    value={formData.dueDate}
-                                                    onChange={handleChange}
-                                                    min={new Date().toISOString().split('T')[0]}
-                                                    max={new Date(new Date().setFullYear(new Date().getFullYear() + 2)).toISOString().split('T')[0]}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
-                            <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={onClose}>
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn btn-primary">
-                                    {isExecutor ? 'Update Status' : (task ? 'Update Task' : 'Create Task')}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+      <div className="modal fade show d-block" tabIndex="-1">
+        <div className="modal-dialog modal-lg modal-dialog-centered">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h5 className="modal-title">
+                {isExecutor ? 'Update Task Status' : (task ? 'Edit Task' : 'Create New Task')}
+              </h5>
+              <button type="button" className="btn-close" onClick={onClose}></button>
             </div>
-        </>
-    )
+
+            <form onSubmit={handleSubmit}>
+              <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                {isExecutor ? (
+                  <>
+                    <div className="mb-3">
+                      <h5>{task?.title}</h5>
+                      <p className="text-muted">{task?.description || 'No description'}</p>
+                    </div>
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <label className="form-label">Project</label>
+                        <p className="form-control-plaintext">{task?.projectTitle}</p>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label">Priority</label>
+                        <p className="form-control-plaintext">
+                          <span className={`badge bg-${task?.priorityColor || 'secondary'}`}>
+                            {task?.priorityLabel || 'Priority'}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <label className="form-label">Estimated Time</label>
+                        <p className="form-control-plaintext">{task?.estimatedTime || 'Not set'}</p>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label">Assignee</label>
+                        <p className="form-control-plaintext">{task?.assigneeName || currentEmployee?.name}</p>
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="status_name" className="form-label">Update Status *</label>
+                      <select
+                        className="form-select form-select-lg"
+                        id="status_name"
+                        name="status_name"
+                        value={formData.status_name}
+                        onChange={handleChange}
+                      >
+                        {TASK_STATUS_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-3">
+                      <label htmlFor="title" className="form-label">Task Title *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="title"
+                        name="title"
+                        value={formData.title}
+                        onChange={handleChange}
+                        placeholder="e.g., Design homepage mockup"
+                        required
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="description" className="form-label">Description</label>
+                      <div style={{ minHeight: '150px' }}>
+                        <MarkdownEditor
+                          value={formData.description}
+                          onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
+                          placeholder="Describe the task requirements..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <label htmlFor="project_id" className="form-label">Project *</label>
+                        <select
+                          className="form-select"
+                          id="project_id"
+                          name="project_id"
+                          value={formData.project_id}
+                          onChange={handleChange}
+                          required
+                        >
+                          <option value="">Select a project</option>
+                          {projectOptions.map(project => (
+                            <option key={project.id} value={project.id}>
+                              {project.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label htmlFor="status_name" className="form-label">Status</label>
+                        <select
+                          className="form-select"
+                          id="status_name"
+                          name="status_name"
+                          value={formData.status_name}
+                          onChange={handleChange}
+                        >
+                          {TASK_STATUS_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <label htmlFor="priority" className="form-label">Priority</label>
+                        <select
+                          className="form-select"
+                          id="priority"
+                          name="priority"
+                          value={formData.priority}
+                          onChange={handleChange}
+                        >
+                          {TASK_PRIORITY_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label htmlFor="estimated_time" className="form-label">Estimated Time</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          id="estimated_time"
+                          name="estimated_time"
+                          value={formData.estimated_time}
+                          onChange={handleChange}
+                          placeholder="e.g., 2d or PT8H"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <label htmlFor="assignee_id" className="form-label">Assignee</label>
+                        <select
+                          className="form-select"
+                          id="assignee_id"
+                          name="assignee_id"
+                          value={formData.assignee_id}
+                          onChange={handleChange}
+                        >
+                          <option value="">Unassigned</option>
+                          {employeeOptions.map(employee => (
+                            <option key={employee.employeeId} value={employee.employeeId}>
+                              {employee.name} ({employee.role})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6">
+                        <label htmlFor="epic_name" className="form-label">Epic Name</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          id="epic_name"
+                          name="epic_name"
+                          value={formData.epic_name}
+                          onChange={handleChange}
+                          placeholder="Optional"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mb-3">
+                      <label htmlFor="labels" className="form-label">Labels (comma separated)</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="labels"
+                        name="labels"
+                        value={formData.labels}
+                        onChange={handleChange}
+                        placeholder="backend, infra"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  {isExecutor ? 'Update Status' : (task ? 'Update Task' : 'Create Task')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </>
+  )
 }
 
 export default TaskModal

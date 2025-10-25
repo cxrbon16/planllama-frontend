@@ -1,25 +1,31 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
+function EmployeeSelector({ employees = [], selectedEmployees, onEmployeesChange }) {
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [newEmployee, setNewEmployee] = useState({
     employee_id: '',
     name: '',
     skills: [],
-    department: ''
+    department: '',
   })
   const [skillInput, setSkillInput] = useState('')
 
-  // Mock available employees - will be replaced with API call
-  const availableEmployees = [
-    { employee_id: 'e14', name: 'John Doe', skills: ['python', 'fastapi', 'redis'], department: 'Backend' },
-    { employee_id: 'e42', name: 'Jane Smith', skills: ['web', 'react', 'restapi'], department: 'Frontend' },
-    { employee_id: 'e44', name: 'Bob Johnson', skills: ['python', 'react', 'docker'], department: 'Full Stack' }
-  ]
+  const availableEmployees = useMemo(() => {
+    const selectedIds = new Set(selectedEmployees.map(emp => emp.employee_id))
+    return employees.filter(emp => !selectedIds.has(emp.employeeId))
+  }, [employees, selectedEmployees])
+
+  const toTeamMember = (employee) => ({
+    employee_id: employee.employeeId,
+    name: employee.name,
+    skills: Array.isArray(employee.raw?.skills) ? employee.raw.skills : employee.skills,
+    department: employee.raw?.department || employee.department || employee.role,
+  })
 
   const handleAddEmployee = (employee) => {
-    if (!selectedEmployees.find(e => e.employee_id === employee.employee_id)) {
-      onEmployeesChange([...selectedEmployees, employee])
+    const teamMember = employee.employeeId ? toTeamMember(employee) : employee
+    if (!selectedEmployees.find(e => e.employee_id === teamMember.employee_id)) {
+      onEmployeesChange([...selectedEmployees, teamMember])
     }
   }
 
@@ -31,7 +37,7 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
     if (skillInput.trim() && !newEmployee.skills.includes(skillInput.trim())) {
       setNewEmployee({
         ...newEmployee,
-        skills: [...newEmployee.skills, skillInput.trim().toLowerCase()]
+        skills: [...newEmployee.skills, skillInput.trim().toLowerCase()],
       })
       setSkillInput('')
     }
@@ -40,7 +46,7 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
   const handleRemoveSkill = (skill) => {
     setNewEmployee({
       ...newEmployee,
-      skills: newEmployee.skills.filter(s => s !== skill)
+      skills: newEmployee.skills.filter(s => s !== skill),
     })
   }
 
@@ -52,12 +58,31 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
     }
   }
 
+  const renderSkillBadges = (skills = []) => {
+    if (!skills || skills.length === 0) return null
+    return (Array.isArray(skills) ? skills : [skills]).map(skill => {
+      if (typeof skill === 'string') {
+        return (
+          <span key={skill} className="badge bg-secondary me-1">{skill}</span>
+        )
+      }
+      if (skill?.name) {
+        return (
+          <span key={skill.name} className="badge bg-secondary me-1">
+            {skill.level ? `${skill.name} (Lv ${skill.level})` : skill.name}
+          </span>
+        )
+      }
+      return null
+    })
+  }
+
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <label className="form-label mb-0">Project Team</label>
-        <button 
-          type="button" 
+        <button
+          type="button"
           className="btn btn-outline-primary btn-sm"
           onClick={() => setShowAddEmployee(!showAddEmployee)}
         >
@@ -65,40 +90,38 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
         </button>
       </div>
 
-      {/* Add from existing employees */}
       {showAddEmployee && (
         <div className="card mb-3 p-3">
           <h6>Select from Available Employees</h6>
           <div className="list-group mb-3">
-            {availableEmployees
-              .filter(emp => !selectedEmployees.find(e => e.employee_id === emp.employee_id))
-              .map(emp => (
+            {availableEmployees.length === 0 ? (
+              <div className="text-muted small">No more employees available to add.</div>
+            ) : (
+              availableEmployees.map(emp => (
                 <button
-                  key={emp.employee_id}
+                  key={emp.employeeId}
                   type="button"
                   className="list-group-item list-group-item-action"
                   onClick={() => handleAddEmployee(emp)}
                 >
                   <div className="d-flex justify-content-between align-items-center">
                     <div>
-                      <strong>{emp.name}</strong> ({emp.employee_id})
-                      <div className="small text-muted">{emp.department}</div>
+                      <strong>{emp.name}</strong> ({emp.employeeId})
+                      <div className="small text-muted">{emp.role}</div>
                       <div className="mt-1">
-                        {emp.skills.map(skill => (
-                          <span key={skill} className="badge bg-secondary me-1">{skill}</span>
-                        ))}
+                        {renderSkillBadges(emp.skills)}
                       </div>
                     </div>
                     <span className="badge bg-primary">Add</span>
                   </div>
                 </button>
-              ))}
+              ))
+            )}
           </div>
 
           <hr />
 
-          {/* Create new employee */}
-          <h6>Or Create New Employee</h6>
+          <h6>Or Create New Team Member</h6>
           <div className="row g-2">
             <div className="col-md-6">
               <input
@@ -135,10 +158,15 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
                   placeholder="Add skill"
                   value={skillInput}
                   onChange={(e) => setSkillInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSkill())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleAddSkill()
+                    }
+                  }}
                 />
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-outline-secondary"
                   onClick={handleAddSkill}
                 >
@@ -147,17 +175,7 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
               </div>
             </div>
             <div className="col-12">
-              {newEmployee.skills.map(skill => (
-                <span key={skill} className="badge bg-secondary me-1">
-                  {skill}
-                  <button
-                    type="button"
-                    className="btn-close btn-close-white ms-1"
-                    style={{ fontSize: '0.6rem' }}
-                    onClick={() => handleRemoveSkill(skill)}
-                  ></button>
-                </span>
-              ))}
+              {renderSkillBadges(newEmployee.skills)}
             </div>
             <div className="col-12">
               <button
@@ -173,7 +191,6 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
         </div>
       )}
 
-      {/* Selected employees */}
       <div className="selected-employees">
         {selectedEmployees.length === 0 ? (
           <div className="text-muted small">No employees added yet</div>
@@ -186,9 +203,7 @@ function EmployeeSelector({ selectedEmployees, onEmployeesChange }) {
                     <strong>{emp.name}</strong> <span className="text-muted">({emp.employee_id})</span>
                     {emp.department && <div className="small text-muted">{emp.department}</div>}
                     <div className="mt-1">
-                      {emp.skills.map(skill => (
-                        <span key={skill} className="badge bg-secondary me-1">{skill}</span>
-                      ))}
+                      {renderSkillBadges(emp.skills)}
                     </div>
                   </div>
                   <button

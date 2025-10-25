@@ -6,6 +6,15 @@ import ProjectList from '../components/ProjectList'
 import TaskList from '../components/TaskList'
 import { useEmployee } from '../context/EmployeeContext'
 import api from '../api'
+import {
+  normalizeEmployees,
+  normalizeProjectBasic,
+  normalizeProjects,
+  normalizeTasks,
+  buildProjectMap,
+  buildEmployeeMap,
+  groupTasksByProject,
+} from '../utils/dataMappers'
 
 function Dashboard({ role = 'pm' }) {
   const navigate = useNavigate()
@@ -20,10 +29,25 @@ function Dashboard({ role = 'pm' }) {
     let mounted = true
     ;(async () => {
       try {
-        const [projRes, taskRes] = await Promise.all([api.listProjects(), api.listTasks()])
+        const [projRes, taskRes, employeeRes] = await Promise.all([
+          api.listProjects(),
+          api.listTasks(),
+          api.listEmployees(),
+        ])
         if (!mounted) return
-        setProjects(projRes || [])
-        setTasks(taskRes || [])
+
+        const normalizedEmployees = normalizeEmployees(employeeRes || [])
+        const employeeMap = buildEmployeeMap(normalizedEmployees)
+
+        const basicProjects = (projRes || []).map(normalizeProjectBasic)
+        const projectMap = buildProjectMap(basicProjects)
+
+        const normalizedTasks = normalizeTasks(taskRes || [], projectMap, employeeMap)
+        const tasksByProject = groupTasksByProject(normalizedTasks)
+        const normalizedProjects = normalizeProjects(projRes || [], tasksByProject)
+
+        setProjects(normalizedProjects)
+        setTasks(normalizedTasks)
       } catch (err) {
         console.error('Failed to load dashboard data', err)
       }
@@ -35,31 +59,31 @@ function Dashboard({ role = 'pm' }) {
   const overallProjectProgress = useMemo(() => {
     if (role !== 'pm') return 0
     const total = tasks.length
-    const completed = tasks.filter(t => t.status === 'Completed').length
+    const completed = tasks.filter(t => t.statusKey === 'completed').length
     return total > 0 ? Math.round((completed / total) * 100) : 0
   }, [role, tasks])
 
   // Get color based on project statuses
   const getProjectStatsColor = useMemo(() => {
-  const inProgressCount = tasks.filter(t => t.status === 'In Progress').length
-  const completedCount = tasks.filter(t => t.status === 'Completed').length
-  const planningCount = tasks.filter(t => t.status === 'Planning').length
-    
-    // En çok hangi status varsa ona göre renk ver
+    const inProgressCount = tasks.filter(t => t.statusKey === 'in_progress').length
+    const completedCount = tasks.filter(t => t.statusKey === 'completed').length
+    const planningCount = tasks.filter(t => ['planning', 'proposed', 'pending'].includes(t.statusKey)).length
+
     if (completedCount >= inProgressCount && completedCount > 0) return 'success'
     if (inProgressCount > 0) return 'primary'
     if (planningCount > 0) return 'warning'
     return 'info'
-  }, [role])
+  }, [tasks])
 
   // Calculate executor stats based on current employee
   const executorStats = useMemo(() => {
     if (!currentEmployee || role !== 'executor') return null
-    const myTasks = tasks.filter(task => task.assignee === currentEmployee.name)
+    const myId = currentEmployee.employee_id || currentEmployee.id
+    const myTasks = tasks.filter(task => task.assigneeId === myId)
     const assignedTasks = myTasks.length
-    const inProgress = myTasks.filter(task => task.status === 'In Progress').length
-    const completed = myTasks.filter(task => task.status === 'Completed').length
-    const pending = myTasks.filter(task => task.status === 'Pending').length
+    const inProgress = myTasks.filter(task => task.statusKey === 'in_progress').length
+    const completed = myTasks.filter(task => task.statusKey === 'completed').length
+    const pending = myTasks.filter(task => ['pending', 'planning', 'proposed'].includes(task.statusKey)).length
     return {
       assignedTasks: { title: 'Assigned Tasks', value: assignedTasks, color: 'primary' },
       inProgress: { title: 'In Progress', value: inProgress, color: 'warning' },
@@ -81,7 +105,11 @@ function Dashboard({ role = 'pm' }) {
         },
         activeTasks: { title: 'Active Tasks', value: tasks.filter(t => t.status === 'In Progress').length, color: 'success' },
         pendingTasks: { title: 'Pending Tasks', value: tasks.filter(t => t.status === 'Pending').length, color: 'warning' },
-        teamMembers: { title: 'Team Members', value: 6, color: 'info' }
+        teamMembers: {
+          title: 'Team Members',
+          value: [...new Set(projects.flatMap(project => (project.team || []).map(member => member.employee_id || member.id || member.name)))].length,
+          color: 'info'
+        }
       },
       showTabs: true
     },

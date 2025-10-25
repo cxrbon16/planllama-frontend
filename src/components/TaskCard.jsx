@@ -1,36 +1,7 @@
 function TaskCard({ task, role, onEdit, onDelete, onUpdateStatus }) {
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'Completed': return 'success'
-      case 'In Progress': return 'primary'
-      case 'Pending': return 'warning'
-      default: return 'secondary'
-    }
-  }
-
-  const getPriorityClass = (priority) => {
-    return `priority-${priority}`
-  }
-
-  const getPriorityColor = (priority) => {
-    switch(priority) {
-      case 'high': return 'danger'
-      case 'medium': return 'warning'
-      case 'low': return 'success'
-      case 'critical': return 'danger'
-      default: return 'secondary'
-    }
-  }
-
-  const getStatusBorderColor = (status) => {
-    switch(status) {
-      case 'Completed': return 'var(--success-color)'
-      case 'In Progress': return 'var(--primary-color)'
-      case 'Pending': return 'var(--warning-color)'
-      case 'Blocked': return 'var(--danger-color)'
-      default: return '#6c757d'
-    }
-  }
+  const statusColor = task.statusColor || 'secondary'
+  const priorityColor = task.priorityColor || 'secondary'
+  const priorityLabel = task.priorityLabel || 'Priority'
 
   const handleEdit = () => {
     if (onEdit) {
@@ -51,40 +22,50 @@ function TaskCard({ task, role, onEdit, onDelete, onUpdateStatus }) {
   }
 
   return (
-    <div 
-      className={`task-card ${getPriorityClass(task.priority)}`}
-      style={{ borderLeft: `8px solid ${getStatusBorderColor(task.status)}` }}
+    <div
+      className={`task-card priority-${task.priorityKey || 'medium'}`}
+      style={{ borderLeft: `8px solid var(--bs-${statusColor})` }}
     >
       <div className="d-flex justify-content-between align-items-start mb-2">
         <h6 className="mb-1 flex-grow-1">{task.title}</h6>
-        <span className={`badge bg-${getStatusColor(task.status)} ms-2`}>
-          {task.status}
+        <span className={`badge bg-${statusColor} ms-2`}>
+          {task.statusLabel}
         </span>
       </div>
-      
-      <p className="text-muted small mb-3">{task.description}</p>
-      
+
+      <p className="text-muted small mb-3">{task.description || 'No description provided.'}</p>
+
       <div className="mb-2">
         <div className="small text-muted mb-1">
-          <strong>Project:</strong> {task.project}
+          <strong>Project:</strong> {task.projectTitle}
         </div>
         <div className="small text-muted mb-1">
-          <strong>Assignee:</strong> {task.assignee}
+          <strong>Assignee:</strong> {task.assigneeName || 'Unassigned'}
         </div>
         <div className="small text-muted">
-          <strong>Due:</strong> {task.dueDate}
+          <strong>Estimated:</strong> {task.estimatedTime || 'Not set'}
         </div>
+        {task.epicName && (
+          <div className="small text-muted">
+            <strong>Epic:</strong> {task.epicName}
+          </div>
+        )}
+        {task.labels && task.labels.length > 0 && (
+          <div className="small text-muted">
+            <strong>Labels:</strong> {task.labels.join(', ')}
+          </div>
+        )}
       </div>
 
       <div className="mb-3">
-        <span className={`badge bg-${getPriorityColor(task.priority)}`}>
-          {task.priority} priority
+        <span className={`badge bg-${priorityColor}`}>
+          {priorityLabel} priority
         </span>
       </div>
-      
+
       {role === 'executor' && (
         <div className="d-flex gap-2">
-          <button 
+          <button
             className="btn btn-sm btn-outline-primary flex-grow-1"
             onClick={handleUpdateStatus}
           >
@@ -92,16 +73,16 @@ function TaskCard({ task, role, onEdit, onDelete, onUpdateStatus }) {
           </button>
         </div>
       )}
-      
+
       {role === 'pm' && (
         <div className="d-flex gap-2">
-          <button 
+          <button
             className="btn btn-sm btn-outline-primary flex-grow-1"
             onClick={handleEdit}
           >
             Edit
           </button>
-          <button 
+          <button
             className="btn btn-sm btn-outline-danger"
             onClick={handleDelete}
           >
