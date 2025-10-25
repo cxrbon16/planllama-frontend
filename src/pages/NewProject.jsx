@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../components/Header'
 import MarkdownEditor from '../components/MarkdownEditor'
 import EmployeeSelector from '../components/EmployeeSelector'
+import api from '../api'
+import { normalizeEmployees } from '../utils/dataMappers'
 
 function NewProject() {
   const navigate = useNavigate()
@@ -22,7 +24,9 @@ function NewProject() {
   })
 
   const [selectedEmployees, setSelectedEmployees] = useState([])
+  const [availableEmployees, setAvailableEmployees] = useState([])
   const [languageInput, setLanguageInput] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -67,6 +71,20 @@ function NewProject() {
     }))
   }
 
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const employees = await api.listEmployees()
+        if (!mounted) return
+        setAvailableEmployees(normalizeEmployees(employees))
+      } catch (err) {
+        console.error('Failed to load employees', err)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
   const generateJSON = () => {
     const projectData = {
       project_title: formData.project_title,
@@ -88,25 +106,28 @@ function NewProject() {
     return projectData
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    
+    if (isSubmitting) return
+
     const projectJSON = generateJSON()
-    
-    // Log the JSON for now (will be sent to API/AI later)
-    console.log('Project JSON:', JSON.stringify(projectJSON, null, 2))
-    
-    // Show JSON in alert for demo purposes
-    alert('Project JSON generated! Check console for details.\n\nIn production, this will be sent to AI to generate tasks.')
-    
-    // TODO: Send to API
-    // await fetch('/api/projects', {
-    //   method: 'POST',
-    //   body: JSON.stringify(projectJSON)
-    // })
-    
-    // Navigate back to dashboard
-    // navigate('/pm')
+
+    try {
+      setIsSubmitting(true)
+      const created = await api.createProject(projectJSON)
+      alert('Project created successfully!')
+      const createdId = created?.project_id || created?.id
+      if (createdId) {
+        navigate(`/pm/projects/${createdId}`)
+      } else {
+        navigate('/pm')
+      }
+    } catch (err) {
+      console.error('Failed to create project', err)
+      alert('Failed to create project. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handlePreviewJSON = () => {
@@ -317,6 +338,7 @@ function NewProject() {
                   <h5 className="mb-3 mt-4">Project Team</h5>
                   <div className="mb-4">
                     <EmployeeSelector
+                      employees={availableEmployees}
                       selectedEmployees={selectedEmployees}
                       onEmployeesChange={setSelectedEmployees}
                     />
@@ -324,8 +346,8 @@ function NewProject() {
 
                   {/* Action Buttons */}
                   <div className="d-flex gap-2 mt-4">
-                    <button type="submit" className="btn btn-primary">
-                      Create Project & Generate Tasks (AI)
+                    <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                      {isSubmitting ? 'Creating...' : 'Create Project & Generate Tasks (AI)'}
                     </button>
                     <button 
                       type="button" 

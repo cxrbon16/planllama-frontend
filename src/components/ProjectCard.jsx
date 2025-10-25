@@ -1,32 +1,27 @@
+import { getInitials, getStatusColor } from '../utils/dataMappers'
+
 function ProjectCard({ project, role, members = [], onEdit, onDelete, onClick }) {
-  const progress = project.tasksCount > 0 ? (project.completedTasks / project.tasksCount) * 100 : 0
+  const progress = project.progress ?? (project.tasksCount > 0 ? (project.completedTasks / project.tasksCount) * 100 : 0)
 
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'In Progress': return 'primary'
-      case 'Planning': return 'warning'
-      case 'Completed': return 'success'
-      case 'On Hold': return 'secondary'
-      default: return 'secondary'
-    }
-  }
+  const statusColor = project.statusColor || getStatusColor(project.statusLabel || project.statusKey)
+  const statusLabel = project.statusLabel || project.status || 'Planning'
 
-  const getStatusBorderColor = (status) => {
-    switch(status) {
-      case 'Completed': return 'var(--success-color)'
-      case 'In Progress': return 'var(--primary-color)'
-      case 'Planning': return 'var(--warning-color)'
-      case 'On Hold': return '#6c757d'
+  const getStatusBorderColor = () => {
+    switch(statusColor) {
+      case 'success': return 'var(--bs-success)'
+      case 'primary': return 'var(--bs-primary)'
+      case 'warning': return 'var(--bs-warning)'
+      case 'danger': return 'var(--bs-danger)'
       default: return '#6c757d'
     }
   }
 
   const getProgressBarClass = () => {
-    if (progress >= 100) return 'bg-success' // completed
-    if (progress >= 70) return 'bg-primary' // good progress
-    if (progress >= 40) return 'bg-warning' // moderate progress
-    if (progress > 0) return 'bg-warning' // just started
-    return 'bg-secondary' // not started
+    if (progress >= 100) return 'bg-success'
+    if (progress >= 70) return 'bg-primary'
+    if (progress >= 40) return 'bg-warning'
+    if (progress > 0) return 'bg-warning'
+    return 'bg-secondary'
   }
 
   const handleCardClick = (e) => {
@@ -50,24 +45,24 @@ function ProjectCard({ project, role, members = [], onEdit, onDelete, onClick })
       <div
           className="project-card"
           onClick={handleCardClick}
-          style={{ 
+          style={{
             cursor: 'pointer',
-            borderLeft: `8px solid ${getStatusBorderColor(project.status)}`
+            borderLeft: `8px solid ${getStatusBorderColor()}`
           }}
       >
         <div className="d-flex justify-content-between align-items-start mb-2">
-          <h6 className="mb-0">{project.name}</h6>
-          <span className={`badge bg-${getStatusColor(project.status)}`}>
-          {project.status}
+          <h6 className="mb-0">{project.title}</h6>
+          <span className={`badge bg-${statusColor}`}>
+          {statusLabel}
         </span>
         </div>
 
-        <p className="text-muted small mb-3">{project.description}</p>
+        <p className="text-muted small mb-3">{project.description || project.metadata?.description || 'No description available.'}</p>
 
         <div className="mb-2">
           <div className="d-flex justify-content-between small text-muted mb-1">
             <span>Progress</span>
-            <span>{project.completedTasks}/{project.tasksCount} tasks</span>
+            <span>{project.completedTasks || 0}/{project.tasksCount || 0} tasks</span>
           </div>
           <div className="progress" style={{ height: '8px' }}>
             <div
@@ -88,17 +83,17 @@ function ProjectCard({ project, role, members = [], onEdit, onDelete, onClick })
               <div className="d-flex" style={{ marginLeft: '-5px' }}>
                 {members.slice(0, 4).map((member, index) => (
                   <div
-                    key={member.id}
+                    key={member.id || member.employeeId || member.name}
                     className="position-relative"
                     style={{ marginLeft: index > 0 ? '-8px' : '0' }}
-                    title={`${member.name} - ${member.role}`}
+                    title={`${member.name} - ${member.role || member.userRole}`}
                   >
                     <div
                       style={{
                         width: '28px',
                         height: '28px',
                         borderRadius: '50%',
-                        backgroundColor: member.user_role === 'pm' ? '#0d6efd' : '#198754',
+                        backgroundColor: (member.userRole || member.user_role) === 'pm' ? '#0d6efd' : '#198754',
                         color: 'white',
                         display: 'flex',
                         alignItems: 'center',
@@ -109,7 +104,7 @@ function ProjectCard({ project, role, members = [], onEdit, onDelete, onClick })
                         cursor: 'pointer'
                       }}
                     >
-                      {member.avatar}
+                      {member.avatar || getInitials(member.name)}
                     </div>
                   </div>
                 ))}
@@ -151,7 +146,7 @@ function ProjectCard({ project, role, members = [], onEdit, onDelete, onClick })
             <svg width="14" height="14" fill="currentColor" className="me-1" viewBox="0 0 16 16">
               <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/>
             </svg>
-            Due: {project.dueDate}
+            Estimated: {project.estimatedTime || 'N/A'}
           </div>
 
           {role === 'pm' && (

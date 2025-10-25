@@ -1,8 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ProjectCard from './ProjectCard'
 import ProjectModal from './ProjectModal'
 import api from '../api'
+import {
+  normalizeEmployees,
+  normalizeProjectBasic,
+  normalizeProjects,
+  normalizeTasks,
+  buildProjectMap,
+  buildEmployeeMap,
+  groupTasksByProject,
+  getInitials,
+} from '../utils/dataMappers'
 
 function ProjectList({ role }) {
   const navigate = useNavigate()
@@ -14,41 +24,59 @@ function ProjectList({ role }) {
   const [projects, setProjects] = useState([])
   const [tasks, setTasks] = useState([])
   const [employees, setEmployees] = useState([])
+  const isMountedRef = useRef(false)
+
+  const loadData = useCallback(async () => {
+    const [projRes, tasksRes, empRes] = await Promise.all([
+      api.listProjects(),
+      api.listTasks(),
+      api.listEmployees(),
+    ])
+
+    const normalizedEmployees = normalizeEmployees(empRes || [])
+    const employeeMap = buildEmployeeMap(normalizedEmployees)
+
+    const basicProjects = (projRes || []).map(normalizeProjectBasic)
+    const projectMap = buildProjectMap(basicProjects)
+
+    const normalizedTasks = normalizeTasks(tasksRes || [], projectMap, employeeMap)
+    const tasksByProject = groupTasksByProject(normalizedTasks)
+    const normalizedProjects = normalizeProjects(projRes || [], tasksByProject)
+
+    if (!isMountedRef.current) return
+
+    setEmployees(normalizedEmployees)
+    setTasks(normalizedTasks)
+    setProjects(normalizedProjects)
+  }, [])
 
   useEffect(() => {
-    let mounted = true
+    isMountedRef.current = true
     ;(async () => {
       try {
-        const [projRes, tasksRes, empRes] = await Promise.all([
-          api.listProjects(),
-          api.listTasks(),
-          api.listEmployees(),
-        ])
-        if (!mounted) return
-        setProjects(projRes || [])
-        setTasks(tasksRes || [])
-        setEmployees(empRes || [])
+        await loadData()
       } catch (err) {
         console.error('Failed to load projects/tasks/employees', err)
       }
     })()
-    return () => { mounted = false }
-  }, [])
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [loadData])
 
   const handleNewProject = () => {
     navigate('/pm/new-project')
   }
 
   const handleEditProject = (project) => {
-    setEditingProject(project)
+    setEditingProject(project?.raw || project)
     setShowModal(true)
   }
 
   const handleSaveProject = async (project) => {
-    if (!editingProject) return
     try {
-      const updated = await api.updateProject(project.id, project)
-      setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
+      await api.updateProject(project.id || project.project_id, project)
+      await loadData()
       setShowModal(false)
     } catch (err) {
       console.error('Failed to save project', err)
@@ -60,7 +88,7 @@ function ProjectList({ role }) {
     if (!window.confirm('Are you sure you want to delete this project?')) return
     try {
       await api.deleteProject(projectId)
-      setProjects(prev => prev.filter(p => p.id !== projectId))
+      await loadData()
     } catch (err) {
       console.error('Failed to delete project', err)
       alert('Failed to delete project')
@@ -74,10 +102,46 @@ function ProjectList({ role }) {
   }
 
   // Her proje için çalışanları hesapla
-  const getProjectMembers = (projectName) => {
-    const projectTasks = tasks.filter(task => task.project === projectName)
-    const uniqueAssignees = [...new Set(projectTasks.map(task => task.assignee))]
-    return uniqueAssignees.map(name => employees.find(e => e.name === name)).filter(Boolean)
+  const getProjectMembers = (project) => {
+    if (!project) return []
+    const members = []
+    const seen = new Set()
+
+    const pushMember = (member) => {
+      if (!member) return
+      const key = member.employeeId || member.id || member.employee_id || member.name
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      members.push(member)
+    }
+
+    // Team members defined on project
+    if (Array.isArray(project.team)) {
+      project.team.forEach(member => {
+        const normalized = employees.find(e => e.employeeId === (member.employee_id || member.id))
+        if (normalized) {
+          pushMember(normalized)
+        } else {
+          pushMember({
+            id: member.employee_id || member.id || member.name,
+            name: member.name || member.employee_id || 'Team Member',
+            role: member.role || member.department || 'Contributor',
+            avatar: getInitials(member.name || member.employee_id || 'TM'),
+            userRole: member.user_role || 'executor',
+          })
+        }
+      })
+    }
+
+    // Members from assigned tasks
+    tasks
+      .filter(task => task.projectId === project.id && task.assigneeId)
+      .forEach(task => {
+        const normalized = employees.find(e => e.employeeId === task.assigneeId)
+        if (normalized) pushMember(normalized)
+      })
+
+    return members
   }
 
   return (
@@ -104,7 +168,7 @@ function ProjectList({ role }) {
                     <ProjectCard
                         project={project}
                         role={role}
-                        members={getProjectMembers(project.name)}
+                        members={getProjectMembers(project)}
                         onEdit={handleEditProject}
                         onDelete={handleDeleteProject}
                         onClick={() => handleClick(project.id)}

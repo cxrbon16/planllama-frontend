@@ -3,6 +3,12 @@ import { useEffect, useState } from 'react'
 import api from '../api'
 import { useEmployee } from '../context/EmployeeContext'
 import logo from '../assets/logo.ico'
+import {
+  normalizeEmployees,
+  calculateLoadPercentage,
+  formatSkills,
+  formatLanguages,
+} from '../utils/dataMappers'
 
 function EmployeeSelection() {
   const navigate = useNavigate()
@@ -16,7 +22,7 @@ function EmployeeSelection() {
       try {
         const res = await api.listEmployees()
         if (!mounted) return
-        setEmployees(res || [])
+        setEmployees(normalizeEmployees(res))
       } catch (err) {
         console.error('Failed to load employees', err)
       }
@@ -25,24 +31,25 @@ function EmployeeSelection() {
   }, [])
 
   const handleSelectEmployee = async (employee) => {
-    await selectEmployee(employee)
-    navigate(`/${employee.user_role}`)
+    const target = employee?.raw || employee
+    await selectEmployee(target)
+    const routeRole = employee.userRole || 'executor'
+    navigate(`/${routeRole}`)
   }
 
   // Group employees by role
-  // Backend şimdilik role bazlı filtreleme yapmı
-  // const projectManagers = employees.filter(emp => emp.user_role === 'pm')
-  // const executors = employees.filter(emp => emp.user_role === 'executor')
-  const executors = employees
-  const projectManagers = employees
+  const executors = employees.filter(emp => emp.userRole === 'executor')
+  const projectManagers = employees.filter(emp => emp.userRole === 'pm')
+  const hasSplitRoles = projectManagers.length > 0 && executors.length > 0
+  const fallbackEmployees = !hasSplitRoles ? employees : null
 
   const EmployeeCard = ({ employee }) => {
-    const availableHours = employee.capacity_hours_per_week - employee.current_load_hours
-    const loadPercentage = (employee.current_load_hours / employee.capacity_hours_per_week * 100).toFixed(0)
-    
+    const availableHours = employee.capacityHours - employee.currentLoadHours
+    const loadPercentage = calculateLoadPercentage(employee)
+
     return (
-      <div 
-        className="card employee-card h-100 text-center p-3" 
+      <div
+        className="card employee-card h-100 text-center p-3"
         onClick={() => handleSelectEmployee(employee)}
         style={{ cursor: 'pointer', transition: 'all 0.3s' }}
       >
@@ -54,7 +61,7 @@ function EmployeeSelection() {
                 width: '60px',
                 height: '60px',
                 borderRadius: '50%',
-                backgroundColor: employee.user_role === 'pm' ? '#0d6efd' : '#198754',
+                backgroundColor: employee.userRole === 'pm' ? '#0d6efd' : '#198754',
                 color: 'white',
                 display: 'flex',
                 alignItems: 'center',
@@ -68,8 +75,8 @@ function EmployeeSelection() {
           </div>
           <h5 className="card-title mb-1">{employee.name}</h5>
           <p className="text-muted small mb-2">{employee.role}</p>
-          <span className={`badge ${employee.user_role === 'pm' ? 'bg-primary' : 'bg-success'} mb-2`}>
-            {employee.user_role === 'pm' ? 'Project Manager' : 'Executor'}
+          <span className={`badge ${employee.userRole === 'pm' ? 'bg-primary' : 'bg-success'} mb-2`}>
+            {employee.userRole === 'pm' ? 'Project Manager' : 'Executor'}
           </span>
           <div className="mt-2 small">
             <div className="d-flex justify-content-between mb-1">
@@ -77,13 +84,19 @@ function EmployeeSelection() {
               <span className="fw-bold">{loadPercentage}%</span>
             </div>
             <div className="progress" style={{ height: '6px' }}>
-              <div 
+              <div
                 className={`progress-bar ${loadPercentage > 85 ? 'bg-danger' : loadPercentage > 70 ? 'bg-warning' : 'bg-success'}`}
                 style={{ width: `${loadPercentage}%` }}
               ></div>
             </div>
             <div className="text-muted mt-1" style={{ fontSize: '11px' }}>
-              {availableHours}h available / {employee.capacity_hours_per_week}h
+              {availableHours}h available / {employee.capacityHours}h
+            </div>
+            <div className="text-muted mt-2" style={{ fontSize: '11px' }}>
+              <strong>Skills:</strong> {formatSkills(employee.skills)}
+            </div>
+            <div className="text-muted" style={{ fontSize: '11px' }}>
+              <strong>Languages:</strong> {formatLanguages(employee.languages)}
             </div>
           </div>
         </div>
@@ -103,35 +116,51 @@ function EmployeeSelection() {
             <p className="lead text-muted">Select an employee to continue</p>
           </div>
 
-          {/* Project Managers Section */}
-          <div className="mb-5">
-            <h4 className="mb-3">
-              <span className="badge bg-primary me-2">PM</span>
-              Project Managers
-            </h4>
-            <div className="row g-3">
-              {projectManagers.map(employee => (
-                <div key={employee.id} className="col-md-6">
-                  <EmployeeCard employee={employee} />
+          {hasSplitRoles ? (
+            <>
+              <div className="mb-5">
+                <h4 className="mb-3">
+                  <span className="badge bg-primary me-2">PM</span>
+                  Project Managers
+                </h4>
+                <div className="row g-3">
+                  {projectManagers.map(employee => (
+                    <div key={employee.id} className="col-md-6">
+                      <EmployeeCard employee={employee} />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* Executors Section */}
-          <div>
-            <h4 className="mb-3">
-              <span className="badge bg-success me-2">EX</span>
-              Executors
-            </h4>
-            <div className="row g-3">
-              {executors.map(employee => (
-                <div key={employee.id} className="col-md-6">
-                  <EmployeeCard employee={employee} />
+              <div>
+                <h4 className="mb-3">
+                  <span className="badge bg-success me-2">EX</span>
+                  Executors
+                </h4>
+                <div className="row g-3">
+                  {executors.map(employee => (
+                    <div key={employee.id} className="col-md-6">
+                      <EmployeeCard employee={employee} />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+            </>
+          ) : (
+            <div>
+              <h4 className="mb-3">
+                <span className="badge bg-secondary me-2">Team</span>
+                All Employees
+              </h4>
+              <div className="row g-3">
+                {fallbackEmployees?.map(employee => (
+                  <div key={employee.id} className="col-md-6">
+                    <EmployeeCard employee={employee} />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
